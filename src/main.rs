@@ -9,8 +9,11 @@ use config::Config;
 use jupiter::Jupiter;
 use binance::Binance;
 use solana_client::rpc_client::RpcClient;
+use std::sync::Arc;
 use solana_sdk::signer::keypair::read_keypair_file;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signature::Signer;
+use std::str::FromStr;
 use tokio::time::{sleep, Duration};
 use tracing_subscriber::fmt::init;
 use ws_binance::binance_ws_price;
@@ -22,18 +25,19 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Config::from_env();
 
     // Solana Devnet RPC
-    let rpc_client = RpcClient::new("https://api.devnet.solana.com");
+    let rpc_client = Arc::new(RpcClient::new("https://api.devnet.solana.com"));
 
     // Load Solana wallet
-    let user = read_keypair_file(&cfg.solana_keypair_path)?;
+    let user = Arc::new(read_keypair_file(&cfg.solana_keypair_path)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?);
 
     // Initialize clients
-    let jupiter = Jupiter::new();
-    let binance = Binance::new(cfg.binance_api_key.clone(), cfg.binance_secret.clone());
+    let jupiter = Arc::new(Jupiter::new());
+    let binance = Arc::new(Binance::new(cfg.binance_api_key.clone(), cfg.binance_secret.clone()));
 
     // Token Mints
-    let sol_mint = Pubkey::from_str("So11111111111111111111111111111111111111112")?;
-    let usdc_mint = Pubkey::from_str("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")?;
+    let sol_mint = Pubkey::from_str("So11111111111111111111111111111111111111112").expect("Invalid SOL mint");
+    let usdc_mint = Pubkey::from_str("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v").expect("Invalid USDC mint");
 
     // Shared channel for Binance price updates
     let (tx, mut rx) = watch::channel(0.0f64);
@@ -66,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
                 continue;
             }
         };
-        let j_price = quote.amount as f64 / 1e6;
+    let j_price = quote.in_amount as f64 / 1e6;
 
         // 2️⃣ Get latest Binance price
         let b_price = *rx.borrow();
@@ -78,10 +82,10 @@ async fn main() -> anyhow::Result<()> {
             println!("Arbitrage opportunity detected!");
 
             // 3️⃣ Spawn async task for executing trades
-            let user_clone = user.clone();
-            let jupiter_clone = jupiter.clone();
-            let binance_clone = binance.clone();
-            let rpc_client_clone = rpc_client.clone();
+            let jupiter_clone = Arc::clone(&jupiter);
+            let binance_clone = Arc::clone(&binance);
+            let user_clone = Arc::clone(&user);
+            let rpc_client_clone = Arc::clone(&rpc_client);
             let quote_clone = quote.clone();
 
             tokio::spawn(async move {

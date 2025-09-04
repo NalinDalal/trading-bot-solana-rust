@@ -1,9 +1,11 @@
 use reqwest::Client;
+
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use hex::encode;
 use chrono::Utc;
 
+#[derive(Clone)]
 pub struct Binance {
     api_key: String,
     secret_key: String,
